@@ -52,7 +52,7 @@ public static class ExpressionBuilder
                 check = Expression.NotEqual(left, right);
             }
 
-            arguments[i] = Expression.IfThenElse(check, right, left);
+            arguments[i] = Expression.Condition(check, right, left, argumentType);
         }
 
         var instance = Expression.New(ctorInfo, arguments);
