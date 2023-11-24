@@ -2,6 +2,8 @@
 Microsoft Visual Studio Solution File, Format Version 12.00
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "RemoraPolyfillCache", "RemoraPolyfillCache\RemoraPolyfillCache.csproj", "{734BD5A7-5D84-4FA0-9CE5-599C58B98D3F}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "RemoraPolyfillCacheTest", "RemoraPolyfillCacheTest\RemoraPolyfillCacheTest.csproj", "{388DF7D0-2586-412E-AD8C-E14134E1AA89}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -12,5 +14,9 @@ Global
 		{734BD5A7-5D84-4FA0-9CE5-599C58B98D3F}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{734BD5A7-5D84-4FA0-9CE5-599C58B98D3F}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{734BD5A7-5D84-4FA0-9CE5-599C58B98D3F}.Release|Any CPU.Build.0 = Release|Any CPU
+		{388DF7D0-2586-412E-AD8C-E14134E1AA89}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{388DF7D0-2586-412E-AD8C-E14134E1AA89}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{388DF7D0-2586-412E-AD8C-E14134E1AA89}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{388DF7D0-2586-412E-AD8C-E14134E1AA89}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 EndGlobal

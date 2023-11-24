@@ -1,5 +1,6 @@
 ﻿using System.Linq.Expressions;
 using System.Reflection;
+using System.Reflection.Emit;
 using System.Runtime.CompilerServices;
 using Remora.Rest.Core;
 
@@ -7,8 +8,9 @@ namespace RemoraPolyfillCache;
 
 public static class ExpressionBuilder
 {
-    private static readonly MethodInfo _getUnitializedObject = typeof(RuntimeHelpers).GetMethod
-        (nameof(RuntimeHelpers.GetUninitializedObject), BindingFlags.Public | BindingFlags.Static)!;
+    private static readonly MethodInfo _getTypeFromHandle = typeof(Type).GetMethod(nameof(Type.GetTypeFromHandle), BindingFlags.Public | BindingFlags.Static)!;
+    private static readonly MethodInfo _optionalHasValue = typeof(IOptional).GetMethod("get_" + nameof(IOptional.HasValue), BindingFlags.Public | BindingFlags.Instance)!;
+    private static readonly MethodInfo _getUnitializedObject = typeof(RuntimeHelpers).GetMethod(nameof(RuntimeHelpers.GetUninitializedObject), BindingFlags.Public | BindingFlags.Static)!;
     
     internal static Dictionary<Type, Delegate> _lookupCache = new();
     
@@ -79,48 +81,74 @@ public static class ExpressionBuilder
         
         // Cached delegate unavailable; build one.
         var typeInfo = typeof(T);
-        var properties = typeInfo.GetFields(BindingFlags.Public | BindingFlags.Instance);
+        var func = GetPolyfillDelegate<T>();
 
-        var setters = new Expression[properties.Length + 1];
+        return ((Func<T, T, T>)(_lookupCache[typeInfo] = func))(old, @new);
+    }
 
-        var oldParam = Expression.Parameter(typeInfo, "old");
-        var newParam = Expression.Parameter(typeInfo, "new");
+    public static Func<T, T, T> GetPolyfillDelegate<T>()
+    {
+        var typeInfo = typeof(T);
+        var method = new DynamicMethod($"polyfill_{typeInfo.Name}", typeInfo, new[] { typeInfo, typeInfo }, restrictedSkipVisibility: true);
+        var il = method.GetILGenerator();
 
-        var instance = Expression.Convert(Expression.Call(_getUnitializedObject, Expression.Constant(typeInfo)), typeInfo);
-        
-        for (int i = 0; i < setters.Length - 1; i++)
+        il.Emit(OpCodes.Ldtoken, typeInfo);
+        il.Emit(OpCodes.Call, _getTypeFromHandle);
+        il.Emit(OpCodes.Call, _getUnitializedObject);
+        il.Emit(OpCodes.Castclass, typeInfo);
+
+        var result = il.DeclareLocal(typeInfo);
+        il.Emit(OpCodes.Stloc, result);
+
+        // TODO: Potentially do this loop in IL and load fields based on an index if possible?
+        foreach (var field in typeInfo.GetFields(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance))
         {
-            var argumentType = properties[i].FieldType;
-
-            var left = Expression.Field(oldParam, properties[i]);
-            var right = Expression.Field(newParam, properties[i]);
-
-            Expression check;
-
-            if (argumentType.IsGenericType && argumentType.GetGenericTypeDefinition() == typeof(Optional<>))
+            if (!field.FieldType.IsAssignableTo(typeof(IOptional)))
             {
-                // Check that the provider of the polyfill has a value for us. If it does, always update.
-                check = Expression.NotEqual(right, Expression.Default(argumentType));
+                // The 'slow' polyfill method basically just checks lhs == rhs, and takes the left if true.
+                il.Emit(OpCodes.Ldloc, result);
+                il.Emit(OpCodes.Ldarg_1);
+                il.Emit(OpCodes.Ldfld, field);
+                il.Emit(OpCodes.Stfld, field);
             }
             else
             {
-                check = Expression.NotEqual(left, right);
-            }
+                var nop = il.DefineLabel(); // basically a NOP between field settings
+                var optionalHasValue = il.DefineLabel();
 
-            setters[i] = Expression.Assign(instance, Expression.Condition(check, right, left, argumentType));
+                il.Emit(OpCodes.Ldarg_1);
+                il.Emit(OpCodes.Ldflda, field);
+                il.Emit(OpCodes.Constrained, field.FieldType);
+                il.Emit(OpCodes.Callvirt, _optionalHasValue);
+                il.Emit(OpCodes.Brtrue, optionalHasValue);
+
+                il.Emit(OpCodes.Ldloc, result);
+                il.Emit(OpCodes.Ldarg_0);
+                il.Emit(OpCodes.Br, nop);
+
+                il.MarkLabel(optionalHasValue);
+                il.Emit(OpCodes.Ldloc, result);
+                il.Emit(OpCodes.Ldarg_1);
+
+                il.MarkLabel(nop);
+
+                il.Emit(OpCodes.Ldfld, field);
+                il.Emit(OpCodes.Stfld, field);
+            }
         }
 
-        setters[^1] = instance;
+        il.Emit(OpCodes.Ldloc, result);
+        il.Emit(OpCodes.Ret);
 
-        var block = Expression.Block(setters);
-        
-        var lambda = Expression.Lambda<Func<T, T, T>>(block, oldParam, newParam);
 
-        var func = lambda.Compile();
+        var func = method.CreateDelegate<Func<T, T, T>>();
+        return func;
+    }
 
-        _lookupCache[typeInfo] = func;
-
-        return func(old, @new);
+    private static void SetField(FieldInfo info, object instance, object value)
+    {
+        var tr = __makeref(instance);
+        info.SetValueDirect(tr, value);
     }
 
     private static object?[] GetProperties<T>(T obj)
